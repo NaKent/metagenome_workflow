@@ -1,4 +1,41 @@
-# Main entrypoint of the workflow. 
-# Please follow the best practices: 
-# https://snakemake.readthedocs.io/en/stable/snakefiles/best_practices.html,
-# in particular regarding the standardized folder structure mentioned there. 
+import pandas as pd
+from snakemake.utils import validate
+
+validate(config, "schema/config.sch  ema.yaml")
+
+units = pd.read_table(config["general"]["units"], index_col=["sample", "unit"],
+    dtype=str)
+units.index = units.index.set_levels([i.astype(str) for i in units.index.levels])
+name_ext = config["merge"]["name_ext"][:-1]
+
+def is_single_end(sample, unit):
+    return pd.isnull(units.loc[(sample,unit), "fq2"])
+
+if config["merge"]["paired_End"]:
+    reads = [1,2]
+else:
+    reads = 1
+
+rule all:
+    input:
+        "results/finalData/unfiltered_table.csv",
+        "results/finalData/filtered_table.csv",
+        "results/finalData/swarm_table.csv" if config["general"]["seq_rep"] == "OTU" else [],
+        "results/qc/multiqc_report.html" if config["general"]["multiqc"] else [],
+        "results/finalData/figures/AmpliconDuo.RData" if config["merge"]["ampliconduo"] and config["merge"]["filter_method"] == "split_sample" else [],
+        "results/finalData/filtered_blast_table.csv" if config["blast"]["blast"] else [],
+        "results/finalData/filtered_blast_table_complete.csv" if config["blast"]["blast"] else []
+
+checkpoint data_preprocessing:
+    include: "data_download.smk"
+    include: "rules/trim_galore.smk"
+    include: "rules/remove_host_genome.smk"
+checkpoint data_pricessing:
+include: "rules/assembly.smk"
+include: "rules/remove_redundant_contigs.smk"
+include: "rules/blast_against_plant_refseq.smk"
+include: "rules/extract_canditates.smk"
+include: "rules/blast_against_ntnr.smk"
+include: "rules/extract_canditates_2nd.smk"
+include: "rules/check_mapping_socore.smk"
+include: "rules/format.smk"
